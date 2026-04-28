@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>You are the submitter</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: #000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .header-logo { width: 28px; height: 28px; border-radius: 4px; }
+        .header-title { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+
+        .layout {
+            display: flex;
+            min-height: calc(100vh - 53px);
+        }
+
+        .sidebar {
+            width: 260px;
+            background: #2b2d31;
+            border-right: 1px solid #1a1a1a;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            position: sticky;
+            top: 53px;
+            height: calc(100vh - 53px);
+            overflow-y: auto;
+        }
+
+        .sidebar-label {
+            font-size: 13px;
+            color: #ccc;
+            font-weight: 500;
+        }
+        .sidebar-sublabel {
+            font-size: 13px;
+            color: #aaa;
+            line-height: 1.4;
+        }
+
+        .text-input {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            width: 100%;
+        }
+        .text-input:focus { border-color: #666; }
+        .text-input::placeholder { color: #666; }
+
+        .lb-title {
+            font-size: 15px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .lb-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .lb-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px;
+            background: #1a1a1a;
+            border-radius: 4px;
+        }
+        .lb-thumb {
+            width: 48px;
+            height: 48px;
+            object-fit: cover;
+            border-radius: 3px;
+            background: #333;
+        }
+        .lb-info { flex: 1; min-width: 0; }
+        .lb-user { font-size: 12px; font-weight: 500; color: #e0e0e0; }
+        .lb-score-val { font-size: 11px; color: #888; }
+        .lb-reaction {
+            font-size: 11px;
+            color: #aaa;
+            font-style: italic;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #444;
+            margin: 2px 0;
+        }
+
+        .submit-btn {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: opacity 0.15s;
+        }
+        .submit-btn:hover { opacity: 0.85; }
+        .submit-btn:active { opacity: 0.7; }
+
+        .artist-text {
+            font-size: 12px;
+            color: #999;
+            line-height: 1.5;
+        }
+
+        .success-msg {
+            display: none;
+            padding: 6px 10px;
+            background: #1a2a1a;
+            border: 1px solid #2a4a2a;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #6abf6a;
+            text-align: center;
+        }
+        .success-msg.visible { display: block; }
+
+        /* Feed */
+        .feed-area {
+            flex: 1;
+            max-width: 600px;
+            padding-bottom: 60px;
+        }
+        .post {
+            margin-bottom: 4px;
+        }
+        .post-username {
+            padding: 10px 16px 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #e0e0e0;
+        }
+        .post-image-container {
+            width: 100%;
+            background: #111;
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .post-image {
+            width: 100%;
+            max-height: 500px;
+            object-fit: contain;
+        }
+        .post-meta {
+            padding: 6px 16px 10px;
+            font-size: 12px;
+            color: #888;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .post-meta-user { font-weight: 500; color: #ccc; }
+        .post-meta-score { color: #666; }
+        .post-meta-reaction { font-style: italic; color: #aaa; }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .layout { flex-direction: column; }
+            .sidebar {
+                position: relative;
+                top: 0;
+                width: 100%;
+                height: auto;
+                border-right: none;
+                border-bottom: 1px solid #1a1a1a;
+            }
+            .feed-area { max-width: 100%; }
+        }
+
+        .loading-indicator {
+            text-align: center;
+            padding: 40px;
+            color: #555;
+            font-size: 14px;
+        }
+        .spinner {
+            width: 24px; height: 24px;
+            border: 2px solid #333;
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .file-input { display: none; }
+
+        .popup-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        .popup-overlay.visible { display: flex; }
+        .popup-box {
+            background: #2b2d31;
+            border: 1px solid #444;
+            padding: 24px;
+            border-radius: 8px;
+            text-align: center;
+            max-width: 300px;
+        }
+        .popup-box p { margin-bottom: 16px; font-size: 14px; }
+        .popup-box button {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 8px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="images/logo.png" alt="" class="header-logo" />
+        <span class="header-title">You are the submitter</span>
+    </div>
+
+    <div class="layout">
+        <div class="sidebar">
+            <div>
+                <div class="sidebar-label">What's your submitter username?</div>
+                <input type="text" id="usernameInput" class="text-input" placeholder="username" maxlength="20" style="margin-top: 6px;" />
+            </div>
+
+            <hr class="divider" />
+
+            <div>
+                <div class="sidebar-sublabel">Make your decision based on the</div>
+                <div class="lb-title">LEADERBOARD:</div>
+                <div class="lb-list" id="lbList" style="margin-top: 8px;">
+                    <div class="loading-indicator"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <hr class="divider" />
+
+            <div>
+                <button class="submit-btn" onclick="onSubmit()">SUBMIT</button>
+                <input type="file" id="fileInput" class="file-input" accept="image/*" />
+                <div class="success-msg" id="successMsg" style="margin-top: 6px;">Post published!</div>
+            </div>
+
+            <hr class="divider" />
+
+            <div>
+                <div class="sidebar-label">Artist's statement and code</div>
+                <p class="artist-text" style="margin-top: 6px;">
+                    This app simulates the dynamics of social media algorithms. As a submitter, you can see the leaderboard and strategically decide what to post. The scroller sees only the feed, unaware that their behavior is being tracked and scored. The asymmetry of information is the point.
+                </p>
+            </div>
+        </div>
+
+        <div class="feed-area" id="feed">
+            <div class="loading-indicator" id="loadingIndicator">
+                <div class="spinner"></div>
+                Loading posts...
+            </div>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="popupOverlay">
+        <div class="popup-box">
+            <p id="popupMsg"></p>
+            <button onclick="closePopup()">OK</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = 'https://sgpdcjpxnefmpvoyvcum.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNncGRjanB4bmVmbXB2b3l2Y3VtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTE5MDUsImV4cCI6MjA5MjM2NzkwNX0.LjDc9_yyVT4AWqdDgec9dxq77KoCJpkVxQpGr8XHLqo';
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let posts = [];
+
+        function showPopup(msg) {
+            document.getElementById('popupMsg').textContent = msg;
+            document.getElementById('popupOverlay').classList.add('visible');
+        }
+        function closePopup() {
+            document.getElementById('popupOverlay').classList.remove('visible');
+        }
+
+        async function loadPosts() {
+            var { data } = await sb
+                .from('posts')
+                .select('*, submitters(username)')
+                .order('created_at', { ascending: false });
+
+            var loader = document.getElementById('loadingIndicator');
+            if (loader) loader.remove();
+
+            posts = data || [];
+            await renderFeed();
+        }
+
+        async function renderFeed() {
+            var feed = document.getElementById('feed');
+            feed.innerHTML = '';
+
+            if (posts.length === 0) {
+                feed.innerHTML = '<div class="loading-indicator">No posts yet — be the first!</div>';
+                return;
+            }
+
+            // Get all scores and reactions
+            var { data: allScores } = await sb
+                .from('scores')
+                .select('post_id, total_score, reaction_text');
+
+            var scoreMap = {};
+            var reactionMap = {};
+            if (allScores) {
+                allScores.forEach(function(s) {
+                    if (!scoreMap[s.post_id]) scoreMap[s.post_id] = 0;
+                    scoreMap[s.post_id] += s.total_score;
+                    if (s.reaction_text && !reactionMap[s.post_id]) {
+                        reactionMap[s.post_id] = s.reaction_text;
+                    }
+                });
+            }
+
+            posts.forEach(function(post) {
+                var username = post.submitters ? post.submitters.username : 'unknown';
+                var score = Math.round(scoreMap[post.id] || 0);
+                var reaction = reactionMap[post.id] || '';
+
+                var postEl = document.createElement('div');
+                postEl.className = 'post';
+
+                var metaHtml = '<span class="post-meta-user">' + username + '</span>' +
+                    '  <span class="post-meta-score">score: ' + score + '</span>';
+                if (reaction) {
+                    metaHtml += '  <span class="post-meta-reaction">"' + reaction + '"</span>';
+                }
+
+                postEl.innerHTML =
+                    '<div class="post-username">' + username + '</div>' +
+                    '<div class="post-image-container">' +
+                        '<img src="' + post.image_url + '" class="post-image" loading="lazy" />' +
+                    '</div>' +
+                    '<div class="post-meta">' + metaHtml + '</div>';
+
+                feed.appendChild(postEl);
+            });
+        }
+
+        async function renderLeaderboard() {
+            var { data: allScores } = await sb
+                .from('scores')
+                .select('post_id, total_score, reaction_text');
+
+            var { data: allPosts } = await sb
+                .from('posts')
+                .select('*, submitters(username)');
+
+            if (!allPosts) return;
+
+            var scoreMap = {};
+            var reactionMap = {};
+            if (allScores) {
+                allScores.forEach(function(s) {
+                    if (!scoreMap[s.post_id]) scoreMap[s.post_id] = 0;
+                    scoreMap[s.post_id] += s.total_score;
+                    if (s.reaction_text && !reactionMap[s.post_id]) {
+                        reactionMap[s.post_id] = s.reaction_text;
+                    }
+                });
+            }
+
+            var sorted = allPosts.slice().sort(function(a, b) {
+                return (scoreMap[b.id] || 0) - (scoreMap[a.id] || 0);
+            });
+
+            var grid = document.getElementById('lbList');
+            if (sorted.length === 0) {
+                grid.innerHTML = '<div style="color:#555;font-size:13px;text-align:center;padding:12px;">No data yet</div>';
+                return;
+            }
+
+            grid.innerHTML = sorted.slice(0, 8).map(function(p, i) {
+                var username = p.submitters ? p.submitters.username : '?';
+                var score = Math.round(scoreMap[p.id] || 0);
+                var reaction = reactionMap[p.id] || '';
+                var reactionHtml = reaction ? '<div class="lb-reaction">"' + reaction + '"</div>' : '';
+
+                return '<div class="lb-item">' +
+                    '<img class="lb-thumb" src="' + p.image_url + '" />' +
+                    '<div class="lb-info">' +
+                        '<div class="lb-user">' + username + '</div>' +
+                        '<div class="lb-score-val">score: ' + score + '</div>' +
+                        reactionHtml +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        async function onSubmit() {
+            var username = document.getElementById('usernameInput').value.trim();
+            if (!username) {
+                showPopup('Enter a username first');
+                return;
+            }
+            if (username.length > 20) {
+                showPopup('Username cannot exceed 20 characters');
+                return;
+            }
+            document.getElementById('fileInput').click();
+        }
+
+        document.getElementById('fileInput').addEventListener('change', async function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+
+            var username = document.getElementById('usernameInput').value.trim();
+
+            var fileName = Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+            var { error: uploadError } = await sb.storage
+                .from('posts')
+                .upload(fileName, file);
+
+            if (uploadError) {
+                showPopup('Could not upload image: ' + uploadError.message);
+                return;
+            }
+
+            var { data: urlData } = sb.storage.from('posts').getPublicUrl(fileName);
+            var imageUrl = urlData.publicUrl;
+
+            var { data: existing } = await sb
+                .from('submitters')
+                .select('*')
+                .eq('username', username)
+                .single();
+
+            if (!existing) {
+                var { data: created, error: subErr } = await sb
+                    .from('submitters')
+                    .insert({ username: username })
+                    .select()
+                    .single();
+                if (subErr) {
+                    showPopup('Could not create user: ' + subErr.message);
+                    return;
+                }
+                existing = created;
+            }
+
+            var { error: postErr } = await sb
+                .from('posts')
+                .insert({
+                    submitter_id: existing.id,
+                    image_url: imageUrl,
+                    artist_statement: null
+                });
+
+            if (postErr) {
+                showPopup('Could not publish: ' + postErr.message);
+                return;
+            }
+
+            var msg = document.getElementById('successMsg');
+            msg.classList.add('visible');
+            setTimeout(function() { msg.classList.remove('visible'); }, 3000);
+
+            e.target.value = '';
+            await loadPosts();
+            await renderLeaderboard();
+        });
+
+        loadPosts();
+        renderLeaderboard();
+        setInterval(renderLeaderboard, 30000);
+    </script>
+</body>
+</html>

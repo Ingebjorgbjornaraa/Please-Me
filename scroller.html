@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>You are the scroller</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: #000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .header-logo { width: 28px; height: 28px; border-radius: 4px; }
+        .header-title { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+
+        .feed { padding-bottom: 60px; }
+
+        .post {
+            margin-bottom: 4px;
+        }
+        .post-username {
+            padding: 10px 16px 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #e0e0e0;
+        }
+        .post-image-container {
+            width: 100%;
+            background: #111;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .post-image {
+            width: 100%;
+            max-height: 600px;
+            object-fit: contain;
+        }
+
+        .post-bottom {
+            display: flex;
+            align-items: center;
+            padding: 8px 16px 12px;
+            gap: 8px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .reaction-input {
+            flex: 1;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+        }
+        .reaction-input:focus { border-color: #555; }
+        .reaction-input::placeholder { color: #555; }
+        .reaction-send {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .reaction-send svg {
+            width: 24px;
+            height: 24px;
+            fill: none;
+            stroke: #888;
+            stroke-width: 2;
+        }
+        .reaction-send:hover svg { stroke: #fff; }
+        .reaction-sent {
+            font-size: 12px;
+            color: #4a9;
+            display: none;
+            padding: 4px 16px 8px;
+        }
+
+        .loading-indicator {
+            text-align: center;
+            padding: 60px 40px;
+            color: #555;
+            font-size: 14px;
+        }
+        .spinner {
+            width: 24px; height: 24px;
+            border: 2px solid #333;
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="images/logo.png" alt="" class="header-logo" />
+        <span class="header-title">You are the scroller</span>
+    </div>
+
+    <div class="feed" id="feed">
+        <div class="loading-indicator" id="loadingIndicator">
+            <div class="spinner"></div>
+            Loading posts...
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = 'https://sgpdcjpxnefmpvoyvcum.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNncGRjanB4bmVmbXB2b3l2Y3VtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTE5MDUsImV4cCI6MjA5MjM2NzkwNX0.LjDc9_yyVT4AWqdDgec9dxq77KoCJpkVxQpGr8XHLqo';
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let posts = [];
+        const postTimers = {};
+        const postReactions = {};
+
+        async function loadPosts() {
+            const { data, error } = await sb
+                .from('posts')
+                .select('*, submitters(username)')
+                .order('created_at', { ascending: false });
+
+            document.getElementById('loadingIndicator').remove();
+
+            if (error || !data || data.length === 0) {
+                document.getElementById('feed').innerHTML =
+                    '<div class="loading-indicator">No posts yet</div>';
+                return;
+            }
+            posts = data;
+            renderFeed();
+            setupScrollTracking();
+        }
+
+        function renderFeed() {
+            const feed = document.getElementById('feed');
+            feed.innerHTML = '';
+
+            posts.forEach(function(post, index) {
+                var username = post.submitters ? post.submitters.username : 'unknown';
+                var postEl = document.createElement('div');
+                postEl.className = 'post';
+                postEl.dataset.postId = post.id;
+
+                postEl.innerHTML =
+                    '<div class="post-username">' + username + '</div>' +
+                    '<div class="post-image-container">' +
+                        '<img src="' + post.image_url + '" class="post-image" loading="lazy" />' +
+                    '</div>' +
+                    '<div class="post-bottom">' +
+                        '<input type="text" class="reaction-input" placeholder="react..." data-post-id="' + post.id + '" />' +
+                        '<button class="reaction-send" data-post-id="' + post.id + '">' +
+                            '<svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>' +
+                        '</button>' +
+                    '</div>' +
+                    '<div class="reaction-sent" id="sent-' + post.id + '">sent</div>';
+
+                feed.appendChild(postEl);
+
+                // Reaction send button
+                var sendBtn = postEl.querySelector('.reaction-send');
+                var input = postEl.querySelector('.reaction-input');
+
+                sendBtn.addEventListener('click', function() {
+                    var pid = this.dataset.postId;
+                    var text = input.value.trim();
+                    if (text) {
+                        postReactions[pid] = text;
+                        input.value = '';
+                        input.placeholder = text;
+                        var sentEl = document.getElementById('sent-' + pid);
+                        sentEl.style.display = 'block';
+                        setTimeout(function() { sentEl.style.display = 'none'; }, 2000);
+                    }
+                });
+
+                // Enter key to send
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        sendBtn.click();
+                    }
+                });
+            });
+        }
+
+        function setupScrollTracking() {
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    var postId = entry.target.dataset.postId;
+                    if (entry.isIntersecting) {
+                        postTimers[postId] = Date.now();
+                    } else if (postTimers[postId]) {
+                        submitScore(postId);
+                    }
+                });
+            }, { threshold: 0.5 });
+
+            document.querySelectorAll('.post').forEach(function(post) {
+                observer.observe(post);
+            });
+        }
+
+        async function submitScore(postId) {
+            var startTime = postTimers[postId];
+            if (!startTime) return;
+
+            var timeSpent = (Date.now() - startTime) / 1000;
+            var reactionText = postReactions[postId] || null;
+            var hasReaction = reactionText !== null;
+
+            var timePoints = (timeSpent / 5) * 10;
+            var reactionBonus = hasReaction ? 150 : 0;
+            var totalScore = timePoints + reactionBonus;
+
+            await sb.from('scores').insert({
+                post_id: postId,
+                time_spent: Math.round(timeSpent * 10) / 10,
+                liked: hasReaction,
+                disliked: false,
+                exit_post: false,
+                total_score: Math.round(totalScore),
+                reaction_text: reactionText
+            });
+
+            delete postTimers[postId];
+        }
+
+        // Exit penalty
+        window.addEventListener('beforeunload', function() {
+            Object.keys(postTimers).forEach(function(postId) {
+                var timeSpent = (Date.now() - postTimers[postId]) / 1000;
+                var totalScore = (timeSpent / 5) * 10 - 300;
+                navigator.sendBeacon(
+                    SUPABASE_URL + '/rest/v1/scores',
+                    new Blob([JSON.stringify({
+                        post_id: postId,
+                        time_spent: Math.round(timeSpent),
+                        liked: false, disliked: false, exit_post: true,
+                        total_score: Math.round(totalScore),
+                        reaction_text: null
+                    })], { type: 'application/json' })
+                );
+            });
+        });
+
+        loadPosts();
+    </script>
+</body>
+</html>
