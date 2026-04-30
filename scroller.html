@@ -133,33 +133,34 @@
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNncGRjanB4bmVmbXB2b3l2Y3VtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTE5MDUsImV4cCI6MjA5MjM2NzkwNX0.LjDc9_yyVT4AWqdDgec9dxq77KoCJpkVxQpGr8XHLqo';
         const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        let posts = [];
-        const postTimers = {};
-        const postReactions = {};
+        var posts = [];
+        var currentVisiblePostId = null;
+        var currentStartTime = null;
+        var reactions = {};
 
         async function loadPosts() {
-            const { data, error } = await sb
+            var result = await sb
                 .from('posts')
                 .select('*, submitters(username)')
                 .order('created_at', { ascending: false });
 
             document.getElementById('loadingIndicator').remove();
 
-            if (error || !data || data.length === 0) {
+            if (result.error || !result.data || result.data.length === 0) {
                 document.getElementById('feed').innerHTML =
                     '<div class="loading-indicator">No posts yet</div>';
                 return;
             }
-            posts = data;
+            posts = result.data;
             renderFeed();
             setupScrollTracking();
         }
 
         function renderFeed() {
-            const feed = document.getElementById('feed');
+            var feed = document.getElementById('feed');
             feed.innerHTML = '';
 
-            posts.forEach(function(post, index) {
+            posts.forEach(function(post) {
                 var username = post.submitters ? post.submitters.username : 'unknown';
                 var postEl = document.createElement('div');
                 postEl.className = 'post';
@@ -180,7 +181,6 @@
 
                 feed.appendChild(postEl);
 
-                // Reaction send button
                 var sendBtn = postEl.querySelector('.reaction-send');
                 var input = postEl.querySelector('.reaction-input');
 
@@ -188,7 +188,7 @@
                     var pid = this.dataset.postId;
                     var text = input.value.trim();
                     if (text) {
-                        postReactions[pid] = text;
+                        reactions[pid] = text;
                         input.value = '';
                         input.placeholder = text;
                         var sentEl = document.getElementById('sent-' + pid);
@@ -197,73 +197,107 @@
                     }
                 });
 
-                // Enter key to send
                 input.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter') {
-                        sendBtn.click();
-                    }
+                    if (e.key === 'Enter') sendBtn.click();
                 });
             });
         }
 
         function setupScrollTracking() {
-            var observer = new IntersectionObserver(function(entries) {
-                entries.forEach(function(entry) {
-                    var postId = entry.target.dataset.postId;
-                    if (entry.isIntersecting) {
-                        postTimers[postId] = Date.now();
-                    } else if (postTimers[postId]) {
-                        submitScore(postId);
+            function getCurrentPost() {
+                var viewportCenter = window.innerHeight / 2;
+                var closest = null;
+                var closestDist = Infinity;
+                document.querySelectorAll('.post').forEach(function(el) {
+                    var rect = el.getBoundingClientRect();
+                    var center = rect.top + rect.height / 2;
+                    var dist = Math.abs(center - viewportCenter);
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closest = el;
                     }
                 });
-            }, { threshold: 0.5 });
+                return closest;
+            }
 
-            document.querySelectorAll('.post').forEach(function(post) {
-                observer.observe(post);
+            var scrollTimeout;
+            window.addEventListener('scroll', function() {
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(function() {
+                    var visiblePost = getCurrentPost();
+                    if (!visiblePost) return;
+                    var newPostId = visiblePost.dataset.postId;
+                    if (currentVisiblePostId && currentVisiblePostId !== newPostId) {
+                        sendScore(currentVisiblePostId, false);
+                    }
+                    if (currentVisiblePostId !== newPostId) {
+                        currentVisiblePostId = newPostId;
+                        currentStartTime = Date.now();
+                    }
+                }, 200);
             });
+
+            var firstPost = getCurrentPost();
+            if (firstPost) {
+                currentVisiblePostId = firstPost.dataset.postId;
+                currentStartTime = Date.now();
+            }
+
+            setInterval(function() {
+                if (currentVisiblePostId && currentStartTime) {
+                    var timeSpent = (Date.now() - currentStartTime) / 1000;
+                    if (timeSpent > 10) {
+                        sendScore(currentVisiblePostId, false);
+                        currentStartTime = Date.now();
+                    }
+                }
+            }, 15000);
         }
 
-        async function submitScore(postId) {
-            var startTime = postTimers[postId];
-            if (!startTime) return;
-
-            var timeSpent = (Date.now() - startTime) / 1000;
-            var reactionText = postReactions[postId] || null;
+        async function sendScore(postId, isExit) {
+            if (!currentStartTime) return;
+            var timeSpent = (Date.now() - currentStartTime) / 1000;
+            var reactionText = reactions[postId] || null;
             var hasReaction = reactionText !== null;
-
             var timePoints = (timeSpent / 5) * 10;
             var reactionBonus = hasReaction ? 150 : 0;
-            var totalScore = timePoints + reactionBonus;
+            var exitPenalty = isExit ? -300 : 0;
+            var totalScore = timePoints + reactionBonus + exitPenalty;
+
+            console.log('Score sent:', postId.substring(0,8), 'time:', Math.round(timeSpent), 'reaction:', reactionText, 'total:', Math.round(totalScore));
 
             await sb.from('scores').insert({
                 post_id: postId,
                 time_spent: Math.round(timeSpent * 10) / 10,
                 liked: hasReaction,
                 disliked: false,
-                exit_post: false,
+                exit_post: isExit,
                 total_score: Math.round(totalScore),
                 reaction_text: reactionText
             });
-
-            delete postTimers[postId];
         }
 
-        // Exit penalty
         window.addEventListener('beforeunload', function() {
-            Object.keys(postTimers).forEach(function(postId) {
-                var timeSpent = (Date.now() - postTimers[postId]) / 1000;
+            if (currentVisiblePostId && currentStartTime) {
+                var timeSpent = (Date.now() - currentStartTime) / 1000;
                 var totalScore = (timeSpent / 5) * 10 - 300;
-                navigator.sendBeacon(
-                    SUPABASE_URL + '/rest/v1/scores',
-                    new Blob([JSON.stringify({
-                        post_id: postId,
+                fetch(SUPABASE_URL + '/rest/v1/scores', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': 'Bearer ' + SUPABASE_KEY
+                    },
+                    body: JSON.stringify({
+                        post_id: currentVisiblePostId,
                         time_spent: Math.round(timeSpent),
                         liked: false, disliked: false, exit_post: true,
                         total_score: Math.round(totalScore),
                         reaction_text: null
-                    })], { type: 'application/json' })
-                );
-            });
+                    }),
+                    keepalive: true
+                });
+            }
         });
 
         loadPosts();
