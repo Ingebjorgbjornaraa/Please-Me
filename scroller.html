@@ -96,6 +96,12 @@
             display: none;
             padding: 4px 16px 8px;
         }
+        .reaction-display {
+            padding: 4px 16px 8px;
+            font-size: 13px;
+            color: #aaa;
+            font-style: italic;
+        }
 
         .loading-indicator {
             text-align: center;
@@ -137,12 +143,26 @@
         var currentVisiblePostId = null;
         var currentStartTime = null;
         var reactions = {};
+        var existingReactions = {};
 
         async function loadPosts() {
             var result = await sb
                 .from('posts')
                 .select('*, submitters(username)')
                 .order('created_at', { ascending: false });
+
+            // Hent eksisterende reactions
+            var scoresResult = await sb
+                .from('scores')
+                .select('post_id, reaction_text')
+                .not('reaction_text', 'is', null);
+
+            if (scoresResult.data) {
+                scoresResult.data.forEach(function(s) {
+                    if (!existingReactions[s.post_id]) existingReactions[s.post_id] = [];
+                    existingReactions[s.post_id].push(s.reaction_text);
+                });
+            }
 
             document.getElementById('loadingIndicator').remove();
 
@@ -166,11 +186,20 @@
                 postEl.className = 'post';
                 postEl.dataset.postId = post.id;
 
+                // Bygg reaction-visning fra eksisterende reactions
+                var reactionsHtml = '';
+                if (existingReactions[post.id]) {
+                    reactionsHtml = existingReactions[post.id].map(function(r) {
+                        return '"' + r + '"';
+                    }).join('  ');
+                }
+
                 postEl.innerHTML =
                     '<div class="post-username">' + username + '</div>' +
                     '<div class="post-image-container">' +
                         '<img src="' + post.image_url + '" class="post-image" loading="lazy" />' +
                     '</div>' +
+                    '<div class="reaction-display" id="reactions-' + post.id + '">' + reactionsHtml + '</div>' +
                     '<div class="post-bottom">' +
                         '<input type="text" class="reaction-input" placeholder="react..." data-post-id="' + post.id + '" />' +
                         '<button class="reaction-send" data-post-id="' + post.id + '">' +
@@ -191,9 +220,22 @@
                         reactions[pid] = text;
                         input.value = '';
                         input.placeholder = text;
+
+                        // Vis reaction under bildet umiddelbart
+                        var reactEl = document.getElementById('reactions-' + pid);
+                        if (reactEl.textContent) {
+                            reactEl.textContent += '  "' + text + '"';
+                        } else {
+                            reactEl.textContent = '"' + text + '"';
+                        }
+
+                        // Vis "sent" bekreftelse
                         var sentEl = document.getElementById('sent-' + pid);
                         sentEl.style.display = 'block';
                         setTimeout(function() { sentEl.style.display = 'none'; }, 2000);
+
+                        // Send score umiddelbart med reaction
+                        sendReactionScore(pid, text);
                     }
                 });
 
@@ -201,6 +243,30 @@
                     if (e.key === 'Enter') sendBtn.click();
                 });
             });
+        }
+
+        async function sendReactionScore(postId, reactionText) {
+            var timeSpent = currentStartTime ? (Date.now() - currentStartTime) / 1000 : 0;
+            var timePoints = (timeSpent / 5) * 10;
+            var reactionBonus = 150;
+            var totalScore = timePoints + reactionBonus;
+
+            console.log('Reaction score sent:', postId.substring(0,8), 'reaction:', reactionText, 'total:', Math.round(totalScore));
+
+            await sb.from('scores').insert({
+                post_id: postId,
+                time_spent: Math.round(timeSpent * 10) / 10,
+                liked: true,
+                disliked: false,
+                exit_post: false,
+                total_score: Math.round(totalScore),
+                reaction_text: reactionText
+            });
+
+            // Reset timer for this post so time-based scoring starts fresh
+            if (postId === currentVisiblePostId) {
+                currentStartTime = Date.now();
+            }
         }
 
         function setupScrollTracking() {
@@ -257,23 +323,20 @@
         async function sendScore(postId, isExit) {
             if (!currentStartTime) return;
             var timeSpent = (Date.now() - currentStartTime) / 1000;
-            var reactionText = reactions[postId] || null;
-            var hasReaction = reactionText !== null;
             var timePoints = (timeSpent / 5) * 10;
-            var reactionBonus = hasReaction ? 150 : 0;
             var exitPenalty = isExit ? -300 : 0;
-            var totalScore = timePoints + reactionBonus + exitPenalty;
+            var totalScore = timePoints + exitPenalty;
 
-            console.log('Score sent:', postId.substring(0,8), 'time:', Math.round(timeSpent), 'reaction:', reactionText, 'total:', Math.round(totalScore));
+            console.log('Time score sent:', postId.substring(0,8), 'time:', Math.round(timeSpent), 'total:', Math.round(totalScore));
 
             await sb.from('scores').insert({
                 post_id: postId,
                 time_spent: Math.round(timeSpent * 10) / 10,
-                liked: hasReaction,
+                liked: false,
                 disliked: false,
                 exit_post: isExit,
                 total_score: Math.round(totalScore),
-                reaction_text: reactionText
+                reaction_text: null
             });
         }
 
