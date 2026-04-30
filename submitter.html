@@ -364,8 +364,9 @@ Mail: galerie.ingebjorg@outlook.com
                 allScores.forEach(function(s) {
                     if (!scoreMap[s.post_id]) scoreMap[s.post_id] = 0;
                     scoreMap[s.post_id] += s.total_score;
-                    if (s.reaction_text && !reactionMap[s.post_id]) {
-                        reactionMap[s.post_id] = s.reaction_text;
+                    if (s.reaction_text) {
+                        if (!reactionMap[s.post_id]) reactionMap[s.post_id] = [];
+                        reactionMap[s.post_id].push(s.reaction_text);
                     }
                 });
             }
@@ -373,10 +374,160 @@ Mail: galerie.ingebjorg@outlook.com
             posts.forEach(function(post) {
                 var username = post.submitters ? post.submitters.username : 'unknown';
                 var score = Math.round(scoreMap[post.id] || 0);
-                var reaction = reactionMap[post.id] || '';
+                var reactionsArr = reactionMap[post.id] || [];
+                var reactionsText = reactionsArr.map(function(r) { return '"' + r + '"'; }).join('  ');
 
                 var postEl = document.createElement('div');
                 postEl.className = 'post';
+
+                var metaHtml = '<span class="post-meta-user">' + username + '</span>' +
+                    '  <span class="post-meta-score">score: ' + score + '</span>';
+                if (reactionsText) {
+                    metaHtml += '<br><span class="post-meta-reaction">' + reactionsText + '</span>';
+                }
+
+                postEl.innerHTML =
+                    '<div class="post-username">' + username + '</div>' +
+                    '<div class="post-image-container">' +
+                        '<img src="' + post.image_url + '" class="post-image" loading="lazy" />' +
+                    '</div>' +
+                    '<div class="post-meta">' + metaHtml + '</div>';
+
+                feed.appendChild(postEl);
+            });
+        }
+
+        async function renderLeaderboard() {
+            var { data: allScores } = await sb
+                .from('scores')
+                .select('post_id, total_score, reaction_text');
+
+            var { data: allPosts } = await sb
+                .from('posts')
+                .select('*, submitters(username)');
+
+            if (!allPosts) return;
+
+            var scoreMap = {};
+            var reactionMap = {};
+            if (allScores) {
+                allScores.forEach(function(s) {
+                    if (!scoreMap[s.post_id]) scoreMap[s.post_id] = 0;
+                    scoreMap[s.post_id] += s.total_score;
+                    if (s.reaction_text) {
+                        if (!reactionMap[s.post_id]) reactionMap[s.post_id] = [];
+                        reactionMap[s.post_id].push(s.reaction_text);
+                    }
+                });
+            }
+
+            var sorted = allPosts.slice().sort(function(a, b) {
+                return (scoreMap[b.id] || 0) - (scoreMap[a.id] || 0);
+            });
+
+            var grid = document.getElementById('lbList');
+            if (sorted.length === 0) {
+                grid.innerHTML = '<div style="color:#555;font-size:13px;text-align:center;padding:12px;">No data yet</div>';
+                return;
+            }
+
+            grid.innerHTML = sorted.slice(0, 8).map(function(p, i) {
+                var username = p.submitters ? p.submitters.username : '?';
+                var score = Math.round(scoreMap[p.id] || 0);
+                var reactionsArr = reactionMap[p.id] || [];
+                var latestReaction = reactionsArr.length > 0 ? reactionsArr[reactionsArr.length - 1] : '';
+                var reactionHtml = latestReaction ? '<div class="lb-reaction">"' + latestReaction + '"</div>' : '';
+
+                return '<div class="lb-item">' +
+                    '<img class="lb-thumb" src="' + p.image_url + '" />' +
+                    '<div class="lb-info">' +
+                        '<div class="lb-user">' + username + '</div>' +
+                        '<div class="lb-score-val">score: ' + score + '</div>' +
+                        reactionHtml +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        async function onSubmit() {
+            var username = document.getElementById('usernameInput').value.trim();
+            if (!username) {
+                showPopup('Enter a username first');
+                return;
+            }
+            if (username.length > 20) {
+                showPopup('Username cannot exceed 20 characters');
+                return;
+            }
+            document.getElementById('fileInput').click();
+        }
+
+        document.getElementById('fileInput').addEventListener('change', async function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+
+            var username = document.getElementById('usernameInput').value.trim();
+
+            var fileName = Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+            var { error: uploadError } = await sb.storage
+                .from('posts')
+                .upload(fileName, file);
+
+            if (uploadError) {
+                showPopup('Could not upload image: ' + uploadError.message);
+                return;
+            }
+
+            var { data: urlData } = sb.storage.from('posts').getPublicUrl(fileName);
+            var imageUrl = urlData.publicUrl;
+
+            var { data: existing } = await sb
+                .from('submitters')
+                .select('*')
+                .eq('username', username)
+                .single();
+
+            if (!existing) {
+                var { data: created, error: subErr } = await sb
+                    .from('submitters')
+                    .insert({ username: username })
+                    .select()
+                    .single();
+                if (subErr) {
+                    showPopup('Could not create user: ' + subErr.message);
+                    return;
+                }
+                existing = created;
+            }
+
+            var { error: postErr } = await sb
+                .from('posts')
+                .insert({
+                    submitter_id: existing.id,
+                    image_url: imageUrl,
+                    artist_statement: null
+                });
+
+            if (postErr) {
+                showPopup('Could not publish: ' + postErr.message);
+                return;
+            }
+
+            var msg = document.getElementById('successMsg');
+            msg.classList.add('visible');
+            setTimeout(function() { msg.classList.remove('visible'); }, 3000);
+
+            e.target.value = '';
+            await loadPosts();
+            await renderLeaderboard();
+        });
+
+        loadPosts();
+        renderLeaderboard();
+        setInterval(renderLeaderboard, 30000);
+    </script>
+</body>
+</html>
 
                 var metaHtml = '<span class="post-meta-user">' + username + '</span>' +
                     '  <span class="post-meta-score">score: ' + score + '</span>';
